@@ -1,69 +1,962 @@
-import Image from "next/image";
+"use client";
+
+import { createClient } from "@/lib/supabase";
+import { useEffect, useState } from "react";
+
+type ProjectStatus = "進行中" | "完了" | "遅延";
+
+type Project = {
+  id: string;
+  projectName: string;
+  siteName: string;
+  manager: string;
+  startDate: string;
+  dueDate: string;
+  progress: number;
+  status: ProjectStatus;
+};
+
+type ProjectFormState = {
+  projectName: string;
+  siteName: string;
+  manager: string;
+  startDate: string;
+  dueDate: string;
+  progress: number;
+  status: ProjectStatus;
+};
+
+const emptyForm: ProjectFormState = {
+  projectName: "",
+  siteName: "",
+  manager: "",
+  startDate: "",
+  dueDate: "",
+  progress: 0,
+  status: "進行中",
+};
+
+const statusStyles: Record<ProjectStatus, string> = {
+  進行中: "bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-200",
+  完了: "bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-200",
+  遅延: "bg-red-100 text-red-700 ring-1 ring-inset ring-red-200",
+};
+
+const progressStyles: Record<ProjectStatus, string> = {
+  進行中: "bg-blue-500",
+  完了: "bg-emerald-500",
+  遅延: "bg-red-500",
+};
+
+const formatDateForInput = (value: string | null | undefined) => {
+  if (!value) return "";
+  if (value.includes("/")) {
+    return value.replace(/\//g, "-");
+  }
+  return value;
+};
+
+const formatDateForDisplay = (value: string | null | undefined) => {
+  if (!value) return "-";
+  if (value.includes("/")) {
+    return value;
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
+};
+
+const resolveAutoStatus = (
+  progress: number,
+  dueDate: string | null | undefined
+): ProjectStatus => {
+  const numericProgress = Number.isFinite(progress) ? Number(progress) : 0;
+
+  if (numericProgress >= 100) {
+    return "完了";
+  }
+
+  if (!dueDate) {
+    return "進行中";
+  }
+
+  const normalizedDueDate = formatDateForInput(dueDate);
+  const due = new Date(`${normalizedDueDate}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  if (!Number.isNaN(due.getTime()) && due < today) {
+    return "遅延";
+  }
+
+  return "進行中";
+};
+
+const normalizeStatus = (
+  value: string | null | undefined,
+  progress: number,
+  dueDate: string | null | undefined
+): ProjectStatus => {
+  if (value === "完了") return "完了";
+  if (value === "遅延") return "遅延";
+  return resolveAutoStatus(progress, dueDate);
+};
 
 export default function Home() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+  const [formData, setFormData] = useState<ProjectFormState>(emptyForm);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [detailFormData, setDetailFormData] = useState<ProjectFormState | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"すべて" | ProjectStatus>("すべて");
+
+  const loadProjects = async () => {
+    setIsLoading(true);
+    setErrorMessage("");
+
+    try {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("projects")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        throw error;
+      }
+
+      const mappedProjects = (data ?? []).map((project) => {
+        const progress = Number(project.progress ?? 0);
+        const dueDate = project.due_date ?? null;
+        const status = normalizeStatus(project.status, progress, dueDate);
+
+        return {
+          id: String(project.id),
+          projectName: project.project_name ?? "未設定の案件",
+          siteName: project.site_name ?? "未設定の現場",
+          manager: project.manager ?? "未設定",
+          startDate: formatDateForDisplay(project.start_date),
+          dueDate: formatDateForDisplay(project.due_date),
+          progress,
+          status,
+        };
+      });
+
+      setProjects(mappedProjects);
+
+      if (selectedProjectId) {
+        const selectedProject = mappedProjects.find((project) => project.id === selectedProjectId) ?? null;
+        if (selectedProject) {
+          setDetailFormData({
+            projectName: selectedProject.projectName,
+            siteName: selectedProject.siteName,
+            manager: selectedProject.manager,
+            startDate: formatDateForInput(selectedProject.startDate),
+            dueDate: formatDateForInput(selectedProject.dueDate),
+            progress: selectedProject.progress,
+            status: selectedProject.status,
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Supabase project fetch error:", error);
+      setErrorMessage(
+        error instanceof Error
+          ? `データの取得に失敗しました: ${error.message}`
+          : "データの取得中に不明なエラーが発生しました。"
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadProjects();
+  }, []);
+
+  const handleInputChange = (
+    event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value } = event.target;
+
+    setFormData((previous) => ({
+      ...previous,
+      [name]: name === "progress" ? Number(value) : value,
+    }));
+  };
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSubmitting(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    const trimmedProjectName = formData.projectName.trim();
+    const trimmedSiteName = formData.siteName.trim();
+    const trimmedManager = formData.manager.trim();
+
+    if (!trimmedProjectName || !trimmedSiteName || !trimmedManager || !formData.startDate || !formData.dueDate) {
+      setErrorMessage("必須項目をすべて入力してください。");
+      setIsSubmitting(false);
+      return;
+    }
+
+    const finalStatus = resolveAutoStatus(formData.progress, formData.dueDate);
+
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.from("projects").insert([
+        {
+          project_name: trimmedProjectName,
+          site_name: trimmedSiteName,
+          manager: trimmedManager,
+          start_date: formData.startDate,
+          due_date: formData.dueDate,
+          progress: Number(formData.progress),
+          status: finalStatus,
+        },
+      ]);
+
+      if (error) {
+        throw error;
+      }
+
+      setSuccessMessage("新規案件を登録しました。案件一覧を更新しました。");
+      setFormData(emptyForm);
+      setIsFormOpen(false);
+      await loadProjects();
+    } catch (error) {
+      console.error("Supabase insert error:", error);
+      setErrorMessage(
+        error instanceof Error
+          ? `登録に失敗しました: ${error.message}`
+          : "登録中に不明なエラーが発生しました。"
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDetailInputChange = (
+    event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value } = event.target;
+
+    setDetailFormData((previous) => {
+      if (!previous) {
+        return previous;
+      }
+
+      const nextData = {
+        ...previous,
+        [name]: name === "progress" ? Number(value) : value,
+      } as ProjectFormState;
+
+      if (name === "progress" || name === "dueDate") {
+        nextData.status = resolveAutoStatus(nextData.progress, nextData.dueDate);
+      }
+
+      if (name === "status") {
+        nextData.status = value as ProjectStatus;
+      }
+
+      return nextData;
+    });
+  };
+
+  const handleUpdateSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!selectedProjectId || !detailFormData) {
+      setErrorMessage("更新対象の案件が選択されていません。");
+      return;
+    }
+
+    const trimmedProjectName = detailFormData.projectName.trim();
+    const trimmedSiteName = detailFormData.siteName.trim();
+    const trimmedManager = detailFormData.manager.trim();
+
+    if (!trimmedProjectName || !trimmedSiteName || !trimmedManager || !detailFormData.startDate || !detailFormData.dueDate) {
+      setErrorMessage("必須項目をすべて入力してください。");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const supabase = createClient();
+      const finalStatus = resolveAutoStatus(detailFormData.progress, detailFormData.dueDate);
+      const { error } = await supabase.from("projects").update({
+        project_name: trimmedProjectName,
+        site_name: trimmedSiteName,
+        manager: trimmedManager,
+        start_date: detailFormData.startDate,
+        due_date: detailFormData.dueDate,
+        progress: Number(detailFormData.progress),
+        status: finalStatus,
+      }).eq("id", selectedProjectId);
+
+      if (error) {
+        throw error;
+      }
+
+      setSuccessMessage("案件情報を更新しました。一覧を最新状態に反映しました。");
+      await loadProjects();
+    } catch (error) {
+      console.error("Supabase update error:", error);
+      setErrorMessage(
+        error instanceof Error
+          ? `更新に失敗しました: ${error.message}`
+          : "更新中に不明なエラーが発生しました。"
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!projectToDelete) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMessage("");
+    setSuccessMessage("");
+
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("projects")
+        .delete()
+        .eq("id", projectToDelete.id);
+
+      if (error) {
+        throw error;
+      }
+
+      if (selectedProjectId === projectToDelete.id) {
+        setSelectedProjectId(null);
+        setDetailFormData(null);
+      }
+      setProjectToDelete(null);
+      setSuccessMessage("案件を削除しました。案件一覧と集計を更新しました。");
+      await loadProjects();
+    } catch (error) {
+      console.error("Supabase delete error:", error);
+      setErrorMessage(
+        error instanceof Error
+          ? `削除に失敗しました: ${error.message}`
+          : "削除中に不明なエラーが発生しました。"
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const summary = {
+    inProgress: projects.filter((project) => project.status === "進行中").length,
+    completed: projects.filter((project) => project.status === "完了").length,
+    delayed: projects.filter((project) => project.status === "遅延").length,
+  };
+
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const filteredProjects = projects.filter((project) => {
+    const matchesSearch =
+      !normalizedSearchQuery ||
+      [project.projectName, project.siteName, project.manager].some((value) =>
+        value.toLowerCase().includes(normalizedSearchQuery)
+      );
+    const matchesStatus = statusFilter === "すべて" || project.status === statusFilter;
+
+    return matchesSearch && matchesStatus;
+  });
+
+  const openProjectDetail = (project: Project) => {
+    setSelectedProjectId(project.id);
+    setDetailFormData({
+      projectName: project.projectName,
+      siteName: project.siteName,
+      manager: project.manager,
+      startDate: formatDateForInput(project.startDate),
+      dueDate: formatDateForInput(project.dueDate),
+      progress: project.progress,
+      status: project.status,
+    });
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="min-h-screen bg-slate-100 p-6 text-slate-800">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <header className="flex items-center justify-between gap-4 rounded-2xl bg-slate-900 px-6 py-5 text-white shadow-lg shadow-slate-200">
+          <div>
+            <p className="text-sm font-medium text-slate-300">建設管理ダッシュボード</p>
+            <h1 className="mt-1 text-3xl font-bold tracking-tight">工事進捗管理</h1>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsFormOpen((current) => !current)}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              {isFormOpen ? "閉じる" : "新規案件登録"}
+            </button>
+            <div className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-sm text-slate-200">
+              2026年9月3日
+            </div>
+          </div>
+        </header>
+
+        {errorMessage ? (
+          <div
+            className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm"
+            role="alert"
+          >
+            {errorMessage}
+          </div>
+        ) : null}
+
+        {successMessage ? (
+          <div
+            className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-sm"
+            role="status"
+          >
+            {successMessage}
+          </div>
+        ) : null}
+
+        {isFormOpen ? (
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-slate-900">新規案件登録</h2>
+            </div>
+
+            <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">案件名</span>
+                <input
+                  type="text"
+                  name="projectName"
+                  value={formData.projectName}
+                  onChange={handleInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                  placeholder="例：新宿駅前マンション改修工事"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">現場名</span>
+                <input
+                  type="text"
+                  name="siteName"
+                  value={formData.siteName}
+                  onChange={handleInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                  placeholder="例：新宿駅前"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">担当者</span>
+                <input
+                  type="text"
+                  name="manager"
+                  value={formData.manager}
+                  onChange={handleInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                  placeholder="例：田中 健一"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">ステータス</span>
+                <select
+                  name="status"
+                  value={formData.status}
+                  onChange={handleInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                >
+                  <option value="進行中">進行中</option>
+                  <option value="完了">完了</option>
+                  <option value="遅延">遅延</option>
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">開始日</span>
+                <input
+                  type="date"
+                  name="startDate"
+                  value={formData.startDate}
+                  onChange={handleInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">完了予定日</span>
+                <input
+                  type="date"
+                  name="dueDate"
+                  value={formData.dueDate}
+                  onChange={handleInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                />
+              </label>
+
+              <label className="block md:col-span-2">
+                <span className="mb-1 block text-sm font-medium text-slate-700">進捗率</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  name="progress"
+                  value={formData.progress}
+                  onChange={handleInputChange}
+                  className="h-2 w-full cursor-pointer accent-blue-600"
+                />
+                <div className="mt-2 flex items-center justify-between text-sm text-slate-600">
+                  <span>0%</span>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">{formData.progress}%</span>
+                  <span>100%</span>
+                </div>
+              </label>
+
+              <div className="md:col-span-2 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSubmitting ? "登録中..." : "登録"}
+                </button>
+              </div>
+            </form>
+          </section>
+        ) : null}
+
+        <section className="grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">進行中の工事件数</p>
+            <div className="mt-4 flex items-end justify-between">
+              <span className="text-4xl font-bold text-slate-900">{summary.inProgress}</span>
+              <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">進行中</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">完了した工事件数</p>
+            <div className="mt-4 flex items-end justify-between">
+              <span className="text-4xl font-bold text-slate-900">{summary.completed}</span>
+              <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">完了</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm shadow-red-100">
+            <p className="text-sm font-medium text-red-600">遅延している工事件数</p>
+            <div className="mt-4 flex items-end justify-between">
+              <span className="text-4xl font-bold text-red-700">{summary.delayed}</span>
+              <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">要対応</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 sm:px-6">
+            <h2 className="text-xl font-bold text-slate-900">工事案件一覧</h2>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+              {projects.length}件
+            </span>
+          </div>
+
+          <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/70 p-4 sm:p-5 md:flex-row md:items-end">
+            <label className="min-w-0 flex-1">
+              <span className="mb-1 block text-sm font-medium text-slate-700">案件を検索</span>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="案件名・現場名・担当者"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500"
+              />
+            </label>
+            <label className="w-full md:w-48">
+              <span className="mb-1 block text-sm font-medium text-slate-700">ステータス</span>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as "すべて" | ProjectStatus)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500"
+              >
+                <option value="すべて">すべて</option>
+                <option value="進行中">進行中</option>
+                <option value="完了">完了</option>
+                <option value="遅延">遅延</option>
+              </select>
+            </label>
+          </div>
+
+          {isLoading ? (
+            <div className="px-6 py-10 text-center text-slate-500">データを読み込んでいます...</div>
+          ) : projects.length === 0 ? (
+            <div className="px-6 py-10 text-center text-slate-500">表示する工事案件データがありません。</div>
+          ) : filteredProjects.length === 0 ? (
+            <div className="px-6 py-10 text-center text-slate-500">該当する工事案件がありません</div>
+          ) : (
+            <>
+              <div className="hidden md:block">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-slate-200 text-left">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">案件名</th>
+                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">現場名</th>
+                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">担当者</th>
+                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">開始日</th>
+                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">完了予定日</th>
+                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">進捗率</th>
+                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">ステータス</th>
+                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 bg-white">
+                      {filteredProjects.map((project) => (
+                        <tr
+                          key={`${project.id}-${project.projectName}`}
+                          onClick={() => openProjectDetail(project)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              openProjectDetail(project);
+                            }
+                          }}
+                          tabIndex={0}
+                          role="button"
+                          className={
+                            project.status === "遅延"
+                              ? "cursor-pointer bg-red-50/60"
+                              : project.status === "完了"
+                                ? "cursor-pointer bg-emerald-50/60"
+                                : "cursor-pointer bg-blue-50/60"
+                          }
+                        >
+                          <td className="px-6 py-4 align-middle">
+                            <div className="font-semibold text-slate-900">{project.projectName}</div>
+                          </td>
+                          <td className="px-6 py-4 text-slate-600">{project.siteName}</td>
+                          <td className="px-6 py-4 text-slate-600">{project.manager}</td>
+                          <td className="px-6 py-4 text-slate-600">{project.startDate}</td>
+                          <td className="px-6 py-4 text-slate-600">{project.dueDate}</td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="h-2.5 w-28 overflow-hidden rounded-full bg-slate-200">
+                                <div
+                                  className={`h-full rounded-full ${progressStyles[project.status]}`}
+                                  style={{ width: `${Math.min(Math.max(project.progress, 0), 100)}%` }}
+                                />
+                              </div>
+                              <span className="min-w-10 text-sm font-semibold text-slate-700">{project.progress}%</span>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyles[project.status]}`}>
+                              {project.status}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openProjectDetail(project);
+                                }}
+                                className="whitespace-nowrap rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-50"
+                              >
+                                編集
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setProjectToDelete(project);
+                                }}
+                                className="whitespace-nowrap rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-semibold text-red-700 transition hover:bg-red-50"
+                              >
+                                削除
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="block space-y-3 p-3 md:hidden">
+                {filteredProjects.map((project) => (
+                  <article
+                    key={`mobile-${project.id}-${project.projectName}`}
+                    onClick={() => openProjectDetail(project)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openProjectDetail(project);
+                      }
+                    }}
+                    tabIndex={0}
+                    role="button"
+                    className={[
+                      "w-full rounded-2xl border border-slate-200 p-4 text-left shadow-sm transition hover:bg-slate-50",
+                      project.status === "遅延"
+                        ? "bg-red-50/60"
+                        : project.status === "完了"
+                          ? "bg-emerald-50/60"
+                          : "bg-blue-50/60",
+                    ].join(" ")}
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-base font-bold text-slate-900">{project.projectName}</p>
+                        <p className="mt-1 text-sm text-slate-600">{project.siteName}</p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusStyles[project.status]}`}>
+                          {project.status}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openProjectDetail(project);
+                          }}
+                          className="rounded-lg border border-blue-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-50"
+                        >
+                          編集
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setProjectToDelete(project);
+                          }}
+                          className="rounded-lg border border-red-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-50"
+                        >
+                          削除
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 text-sm text-slate-700">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-500">担当者</span>
+                        <span className="font-medium text-slate-700">{project.manager}</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-500">開始日</span>
+                        <span className="font-medium text-slate-700">{project.startDate}</span>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-slate-500">完了予定日</span>
+                        <span className="font-medium text-slate-700">{project.dueDate}</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <div className="mb-1 flex items-center justify-between text-xs font-semibold text-slate-600">
+                        <span>進捗率</span>
+                        <span>{project.progress}%</span>
+                      </div>
+                      <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
+                        <div
+                          className={`h-full rounded-full ${progressStyles[project.status]}`}
+                          style={{ width: `${Math.min(Math.max(project.progress, 0), 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+
+        {selectedProjectId && detailFormData ? (
+          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-slate-900">案件詳細・編集</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedProjectId(null);
+                  setDetailFormData(null);
+                }}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+              >
+                  キャンセル
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateSubmit} className="grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">案件名</span>
+                <input
+                  type="text"
+                  name="projectName"
+                  value={detailFormData.projectName}
+                  onChange={handleDetailInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">現場名</span>
+                <input
+                  type="text"
+                  name="siteName"
+                  value={detailFormData.siteName}
+                  onChange={handleDetailInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">担当者</span>
+                <input
+                  type="text"
+                  name="manager"
+                  value={detailFormData.manager}
+                  onChange={handleDetailInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">ステータス</span>
+                <select
+                  name="status"
+                  value={detailFormData.status}
+                  onChange={handleDetailInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                >
+                  <option value="進行中">進行中</option>
+                  <option value="完了">完了</option>
+                  <option value="遅延">遅延</option>
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">開始日</span>
+                <input
+                  type="date"
+                  name="startDate"
+                  value={detailFormData.startDate}
+                  onChange={handleDetailInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700">完了予定日</span>
+                <input
+                  type="date"
+                  name="dueDate"
+                  value={detailFormData.dueDate}
+                  onChange={handleDetailInputChange}
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
+                />
+              </label>
+
+              <label className="block md:col-span-2">
+                <span className="mb-1 block text-sm font-medium text-slate-700">進捗率</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  name="progress"
+                  value={detailFormData.progress}
+                  onChange={handleDetailInputChange}
+                  className="h-2 w-full cursor-pointer accent-blue-600"
+                />
+                <div className="mt-2 flex items-center justify-between text-sm text-slate-600">
+                  <span>0%</span>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">{detailFormData.progress}%</span>
+                  <span>100%</span>
+                </div>
+              </label>
+
+              <div className="md:col-span-2 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSubmitting ? "保存中..." : "保存"}
+                </button>
+              </div>
+            </form>
+          </section>
+        ) : null}
+
+        {projectToDelete ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+            role="presentation"
+            onClick={() => {
+              if (!isSubmitting) {
+                setProjectToDelete(null);
+              }
+            }}
+          >
+            <div
+              className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-dialog-title"
+              onClick={(event) => event.stopPropagation()}
             >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+              <h2 id="delete-dialog-title" className="text-xl font-bold text-slate-900">
+                案件を削除しますか？
+              </h2>
+              <p className="mt-3 break-words text-sm leading-6 text-slate-600">
+                「{projectToDelete.projectName}」を削除します。この操作は取り消せません。
+              </p>
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => setProjectToDelete(null)}
+                  className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => void handleDelete()}
+                  className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSubmitting ? "削除中..." : "削除する"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
