@@ -398,22 +398,24 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 p-6 text-slate-800">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <header className="flex items-center justify-between gap-4 rounded-2xl bg-slate-900 px-6 py-5 text-white shadow-lg shadow-slate-200">
+    <div className="min-h-screen bg-slate-100 p-4 text-slate-800 sm:p-6">
+      <div className="mx-auto max-w-7xl space-y-5 sm:space-y-6">
+        <header className="flex flex-col gap-5 rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-7">
           <div>
-            <p className="text-sm font-medium text-slate-300">建設管理ダッシュボード</p>
-            <h1 className="mt-1 text-3xl font-bold tracking-tight">工事進捗管理</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Construction DX</p>
+            <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">工事進捗管理ダッシュボード</h1>
+            <p className="mt-1 text-sm text-slate-500">現場の進捗と遅延状況を、毎日の業務判断に。</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 sm:justify-end">
             <button
               type="button"
               onClick={() => setIsFormOpen((current) => !current)}
-              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-500"
+              className="rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800"
             >
               {isFormOpen ? "閉じる" : "新規案件登録"}
             </button>
-            <div className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-sm text-slate-200">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm font-medium text-slate-700">
+              <span className="mr-2 text-xs text-slate-500">本日</span>
               2026年9月3日
             </div>
           </div>
@@ -548,57 +550,70 @@ export default function Home() {
           </section>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-medium text-slate-500">進行中の工事件数</p>
-            <div className="mt-4 flex items-end justify-between">
-              <span className="text-4xl font-bold text-slate-900">{summary.inProgress}</span>
+        <section className="grid gap-3 sm:gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-slate-200 border-l-4 border-l-slate-400 bg-white p-5 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">全案件数</p>
+            <div className="mt-3 flex items-end justify-between">
+              <span className="text-3xl font-bold text-slate-950">{projects.length}</span>
+              <span className="text-xs font-semibold text-slate-400">TOTAL</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 border-l-4 border-l-blue-500 bg-white p-5 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">進行中</p>
+            <div className="mt-3 flex items-end justify-between">
+              <span className="text-3xl font-bold text-slate-950">{summary.inProgress}</span>
               <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">進行中</span>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm font-medium text-slate-500">完了した工事件数</p>
-            <div className="mt-4 flex items-end justify-between">
-              <span className="text-4xl font-bold text-slate-900">{summary.completed}</span>
+          <div className="rounded-2xl border border-slate-200 border-l-4 border-l-emerald-500 bg-white p-5 shadow-sm">
+            <p className="text-sm font-medium text-slate-500">完了</p>
+            <div className="mt-3 flex items-end justify-between">
+              <span className="text-3xl font-bold text-slate-950">{summary.completed}</span>
               <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">完了</span>
             </div>
           </div>
 
-          <div className="rounded-2xl border border-red-200 bg-red-50 p-5 shadow-sm shadow-red-100">
-            <p className="text-sm font-medium text-red-600">遅延している工事件数</p>
-            <div className="mt-4 flex items-end justify-between">
-              <span className="text-4xl font-bold text-red-700">{summary.delayed}</span>
-              <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">要対応</span>
+          <div className="rounded-2xl border border-red-200 border-l-4 border-l-red-500 bg-red-50/70 p-5 shadow-sm">
+            <p className="text-sm font-medium text-red-700">遅延</p>
+            <div className="mt-3 flex items-end justify-between">
+              <span className="text-3xl font-bold text-red-800">{summary.delayed}</span>
+              <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">要確認</span>
             </div>
           </div>
         </section>
 
         <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 sm:px-6">
-            <h2 className="text-xl font-bold text-slate-900">工事案件一覧</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-4 sm:px-6">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900">工事案件一覧</h2>
+              <p className="mt-1 text-xs text-slate-500">案件を選択すると詳細を確認・編集できます</p>
+            </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-              {projects.length}件
+              {filteredProjects.length} / {projects.length}件表示
             </span>
           </div>
 
           <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50/70 p-4 sm:p-5 md:flex-row md:items-end">
             <label className="min-w-0 flex-1">
-              <span className="mb-1 block text-sm font-medium text-slate-700">案件を検索</span>
+              <span className="mb-1 block text-xs font-semibold text-slate-600">案件を検索</span>
               <input
                 type="search"
                 value={searchQuery}
                 onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="案件名・現場名・担当者"
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500"
+                placeholder="案件名・現場名・担当者で検索"
+                aria-label="案件名・現場名・担当者で検索"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </label>
             <label className="w-full md:w-48">
-              <span className="mb-1 block text-sm font-medium text-slate-700">ステータス</span>
+              <span className="mb-1 block text-xs font-semibold text-slate-600">ステータスで絞り込み</span>
               <select
                 value={statusFilter}
                 onChange={(event) => setStatusFilter(event.target.value as "すべて" | ProjectStatus)}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500"
+                aria-label="ステータスで絞り込み"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="すべて">すべて</option>
                 <option value="進行中">進行中</option>
@@ -621,14 +636,14 @@ export default function Home() {
                   <table className="min-w-full divide-y divide-slate-200 text-left">
                     <thead className="bg-slate-50">
                       <tr>
-                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">案件名</th>
-                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">現場名</th>
-                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">担当者</th>
-                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">開始日</th>
-                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">完了予定日</th>
-                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">進捗率</th>
-                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">ステータス</th>
-                        <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">操作</th>
+                        <th className="whitespace-nowrap px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">工事名</th>
+                        <th className="whitespace-nowrap px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">現場名</th>
+                        <th className="whitespace-nowrap px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">担当者</th>
+                        <th className="whitespace-nowrap px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">開始日</th>
+                        <th className="whitespace-nowrap px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">完了予定日</th>
+                        <th className="whitespace-nowrap px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">進捗率</th>
+                        <th className="whitespace-nowrap px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">ステータス</th>
+                        <th className="whitespace-nowrap px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">操作</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-200 bg-white">
@@ -646,19 +661,19 @@ export default function Home() {
                           role="button"
                           className={
                             project.status === "遅延"
-                              ? "cursor-pointer bg-red-50/60"
+                              ? "cursor-pointer border-l-4 border-l-red-400 bg-red-50/70"
                               : project.status === "完了"
-                                ? "cursor-pointer bg-emerald-50/60"
-                                : "cursor-pointer bg-blue-50/60"
+                                ? "cursor-pointer bg-emerald-50/40"
+                                : "cursor-pointer bg-white hover:bg-blue-50/50"
                           }
                         >
-                          <td className="px-6 py-4 align-middle">
+                          <td className="whitespace-nowrap px-6 py-4 align-middle">
                             <div className="font-semibold text-slate-900">{project.projectName}</div>
                           </td>
-                          <td className="px-6 py-4 text-slate-600">{project.siteName}</td>
-                          <td className="px-6 py-4 text-slate-600">{project.manager}</td>
-                          <td className="px-6 py-4 text-slate-600">{project.startDate}</td>
-                          <td className="px-6 py-4 text-slate-600">{project.dueDate}</td>
+                          <td className="whitespace-nowrap px-6 py-4 text-slate-600">{project.siteName}</td>
+                          <td className="whitespace-nowrap px-6 py-4 text-slate-600">{project.manager}</td>
+                          <td className="whitespace-nowrap px-6 py-4 text-slate-600">{project.startDate}</td>
+                          <td className="whitespace-nowrap px-6 py-4 text-slate-600">{project.dueDate}</td>
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-3">
                               <div className="h-2.5 w-28 overflow-hidden rounded-full bg-slate-200">

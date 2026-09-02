@@ -1,36 +1,95 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Construction DX
 
-## Getting Started
+建設会社向けの工事進捗管理ダッシュボードです。
 
-First, run the development server:
+複数の工事案件について、案件名・現場名・担当者・工期・進捗率・ステータスを一元管理し、進行中・完了・遅延案件を把握できます。
+
+## 背景・課題
+
+工事案件をExcelや個別ファイルで管理している場合、案件数が増えるほど、現在の進行状況、遅延案件、担当者、完了予定日を横断的に確認することが難しくなります。
+
+本アプリでは、複数案件の進捗情報を一つの画面で確認できるようにしました。
+
+## 主な機能
+
+- 工事案件の新規登録・編集・削除
+- 進捗率の管理とプログレスバー表示
+- ステータス管理（進行中 / 完了 / 遅延）
+- 進捗率100%時の完了判定
+- 完了予定日を過ぎた未完了案件の遅延判定
+- 案件名・現場名・担当者によるリアルタイム部分一致検索
+- ステータスによる絞り込み
+- 進行中・完了・遅延案件数のダッシュボード表示
+- PC向けテーブル表示とスマートフォン向けカード表示
+- Supabaseとのデータ連携
+
+## 使用技術
+
+- Next.js
+- TypeScript
+- Tailwind CSS
+- Supabase
+- Git / GitHub
+- Vercel
+
+## システム構成
+
+フロントエンドにNext.js、データベースにSupabaseを使用しています。
+
+Supabaseクライアントはブラウザ側でモジュール内の1インスタンスを再利用し、案件の取得・登録・更新・削除を実行します。検索・絞り込みは取得済みデータに対してフロントエンド側で適用します。
+
+GitHubでソースコードを管理し、Vercelを利用してWeb上に公開しています。
+
+## 工夫した点
+
+### 1. 案件状況を一目で把握できるダッシュボード
+
+トップ画面に「進行中」「完了」「遅延」の案件数を表示し、管理者が案件全体の状況を短時間で確認できるようにしました。集計カードは検索・絞り込み条件に影響されず、全案件を対象にしています。
+
+### 2. 検索・絞り込み機能
+
+案件名・現場名・担当者による部分一致検索と、ステータスによる絞り込みを組み合わせて利用できます。
+
+### 3. 進捗率の可視化
+
+数値だけでなくプログレスバーも表示し、各工事の進捗状況を視覚的に確認できるようにしました。
+
+### 4. データベースとの連携
+
+Supabaseと連携し、案件の登録・編集・削除内容がデータベースに保存される構成にしました。削除時には確認ダイアログを表示します。
+
+### 5. レスポンシブ対応
+
+PCでは情報を比較しやすいテーブル、スマートフォンでは縦読みしやすいカード形式に切り替えています。
+
+## 今後の改善案
+
+- 担当者別・ステータス別の集計グラフ
+- ログイン認証とユーザー権限管理
+- 入力値のバリデーション強化
+- 案件の並び替え・ページネーション
+
+## 開発環境の起動
+
+`.env.local`にSupabaseの接続情報を設定してから、以下を実行してください。
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+ブラウザで [http://localhost:3000](http://localhost:3000) を開きます。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## ビルド確認
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+```
 
-## Learn More
+## 公開URL
 
-To learn more about Next.js, take a look at the following resources:
+Vercel: [https://construction-dx-lyart.vercel.app](https://construction-dx-lyart.vercel.app)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## GitHub
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+このリポジトリでソースコードを公開しています。
