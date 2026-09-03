@@ -61,6 +61,13 @@ const progressStyles: Record<ProjectStatus, string> = {
   遅延: "bg-red-500",
 };
 
+const projectStatusPriority: Record<ProjectStatus, number> = {
+  遅延: 0,
+  進行中: 1,
+  未着手: 2,
+  完了: 3,
+};
+
 const formatDateForInput = (value: string | null | undefined) => {
   if (!value) return "";
   if (value.includes("/")) {
@@ -82,6 +89,13 @@ const formatDateForDisplay = (value: string | null | undefined) => {
   }
 
   return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
+};
+
+const getDateTimestamp = (value: string) => {
+  if (!value || value === "-") return Number.POSITIVE_INFINITY;
+  const normalizedValue = value.replace(/\//g, "-");
+  const timestamp = new Date(`${normalizedValue}T00:00:00`).getTime();
+  return Number.isNaN(timestamp) ? Number.POSITIVE_INFINITY : timestamp;
 };
 
 const resolveAutoStatus = (
@@ -414,6 +428,13 @@ export default function Home() {
     const matchesStatus = statusFilter === "すべて" || project.status === statusFilter;
 
     return matchesSearch && matchesStatus;
+  });
+
+  filteredProjects.sort((projectA, projectB) => {
+    const statusDifference = projectStatusPriority[projectA.status] - projectStatusPriority[projectB.status];
+    if (statusDifference !== 0) return statusDifference;
+
+    return getDateTimestamp(projectA.dueDate) - getDateTimestamp(projectB.dueDate);
   });
 
   const openProjectDetail = (project: Project) => {
