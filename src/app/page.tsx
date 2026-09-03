@@ -1,9 +1,10 @@
 "use client";
 
 import { createClient } from "@/lib/supabase";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
-type ProjectStatus = "進行中" | "完了" | "遅延";
+type ProjectStatus = "未着手" | "進行中" | "完了" | "遅延";
 
 type Project = {
   id: string;
@@ -36,13 +37,25 @@ const emptyForm: ProjectFormState = {
   status: "進行中",
 };
 
+const standardPhaseNames = [
+  "仮設工事",
+  "基礎工事",
+  "躯体工事",
+  "外装工事",
+  "設備工事",
+  "内装工事",
+  "検査・引渡し",
+] as const;
+
 const statusStyles: Record<ProjectStatus, string> = {
+  未着手: "bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200",
   進行中: "bg-blue-100 text-blue-700 ring-1 ring-inset ring-blue-200",
   完了: "bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-200",
   遅延: "bg-red-100 text-red-700 ring-1 ring-inset ring-red-200",
 };
 
 const progressStyles: Record<ProjectStatus, string> = {
+  未着手: "bg-slate-400",
   進行中: "bg-blue-500",
   完了: "bg-emerald-500",
   遅延: "bg-red-500",
@@ -77,34 +90,19 @@ const resolveAutoStatus = (
 ): ProjectStatus => {
   const numericProgress = Number.isFinite(progress) ? Number(progress) : 0;
 
-  if (numericProgress >= 100) {
-    return "完了";
-  }
-
-  if (!dueDate) {
-    return "進行中";
-  }
-
   const normalizedDueDate = formatDateForInput(dueDate);
   const due = new Date(`${normalizedDueDate}T00:00:00`);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  if (!Number.isNaN(due.getTime()) && due < today) {
+  if (numericProgress < 100 && dueDate && !Number.isNaN(due.getTime()) && due < today) {
     return "遅延";
   }
 
-  return "進行中";
-};
+  if (numericProgress <= 0) return "未着手";
+  if (numericProgress >= 100) return "完了";
 
-const normalizeStatus = (
-  value: string | null | undefined,
-  progress: number,
-  dueDate: string | null | undefined
-): ProjectStatus => {
-  if (value === "完了") return "完了";
-  if (value === "遅延") return "遅延";
-  return resolveAutoStatus(progress, dueDate);
+  return "進行中";
 };
 
 export default function Home() {
@@ -136,10 +134,29 @@ export default function Home() {
         throw error;
       }
 
+      const { data: phaseData, error: phaseError } = await supabase
+        .from("construction_phases")
+        .select("project_id, progress");
+
+      if (phaseError) {
+        console.error("Supabase phase aggregation error:", phaseError);
+      }
+
+      const phaseProgressByProject = new Map<string, number[]>();
+      (phaseError ? [] : phaseData ?? []).forEach((phase) => {
+        const projectId = String(phase.project_id);
+        const progressList = phaseProgressByProject.get(projectId) ?? [];
+        progressList.push(Number(phase.progress ?? 0));
+        phaseProgressByProject.set(projectId, progressList);
+      });
+
       const mappedProjects = (data ?? []).map((project) => {
-        const progress = Number(project.progress ?? 0);
+        const phaseProgresses = phaseProgressByProject.get(String(project.id));
+        const progress = phaseProgresses?.length
+          ? Math.round(phaseProgresses.reduce((total, value) => total + value, 0) / phaseProgresses.length)
+          : Number(project.progress ?? 0);
         const dueDate = project.due_date ?? null;
-        const status = normalizeStatus(project.status, progress, dueDate);
+        const status = resolveAutoStatus(progress, dueDate);
 
         return {
           id: String(project.id),
@@ -212,27 +229,45 @@ export default function Home() {
       return;
     }
 
-    const finalStatus = resolveAutoStatus(formData.progress, formData.dueDate);
-
     try {
       const supabase = createClient();
-      const { error } = await supabase.from("projects").insert([
+      const { data: createdProject, error } = await supabase.from("projects").insert([
         {
           project_name: trimmedProjectName,
           site_name: trimmedSiteName,
           manager: trimmedManager,
           start_date: formData.startDate,
           due_date: formData.dueDate,
-          progress: Number(formData.progress),
-          status: finalStatus,
+          progress: 0,
+          status: "未着手",
         },
-      ]);
+      ]).select("id").single();
 
       if (error) {
         throw error;
       }
 
-      setSuccessMessage("新規案件を登録しました。案件一覧を更新しました。");
+      if (!createdProject?.id) {
+        throw new Error("作成された案件IDを取得できませんでした。");
+      }
+
+      const { error: phaseError } = await supabase.from("construction_phases").insert(
+        standardPhaseNames.map((name) => ({
+          project_id: createdProject.id,
+          name,
+          progress: 0,
+          status: "未着手",
+          planned_start_date: null,
+          planned_end_date: null,
+          note: null,
+        }))
+      );
+
+      setSuccessMessage(
+        phaseError
+          ? "案件を登録しましたが、標準工程の登録に失敗しました。案件詳細から追加してください。"
+          : "新規案件と標準工程7件を登録しました。案件一覧を更新しました。"
+      );
       setFormData(emptyForm);
       setIsFormOpen(false);
       await loadProjects();
@@ -298,15 +333,12 @@ export default function Home() {
 
     try {
       const supabase = createClient();
-      const finalStatus = resolveAutoStatus(detailFormData.progress, detailFormData.dueDate);
       const { error } = await supabase.from("projects").update({
         project_name: trimmedProjectName,
         site_name: trimmedSiteName,
         manager: trimmedManager,
         start_date: detailFormData.startDate,
         due_date: detailFormData.dueDate,
-        progress: Number(detailFormData.progress),
-        status: finalStatus,
       }).eq("id", selectedProjectId);
 
       if (error) {
@@ -397,6 +429,16 @@ export default function Home() {
     });
   };
 
+  useEffect(() => {
+    const editId = new URLSearchParams(window.location.search).get("edit");
+    const projectToEdit = projects.find((project) => project.id === editId);
+
+    if (projectToEdit) {
+      openProjectDetail(projectToEdit);
+      window.history.replaceState(null, "", "/");
+    }
+  }, [projects]);
+
   return (
     <div className="min-h-screen bg-slate-100 p-4 text-slate-800 sm:p-6">
       <div className="mx-auto max-w-7xl space-y-5 sm:space-y-6">
@@ -483,20 +525,6 @@ export default function Home() {
               </label>
 
               <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">ステータス</span>
-                <select
-                  name="status"
-                  value={formData.status}
-                  onChange={handleInputChange}
-                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
-                >
-                  <option value="進行中">進行中</option>
-                  <option value="完了">完了</option>
-                  <option value="遅延">遅延</option>
-                </select>
-              </label>
-
-              <label className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">開始日</span>
                 <input
                   type="date"
@@ -516,25 +544,6 @@ export default function Home() {
                   onChange={handleInputChange}
                   className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
                 />
-              </label>
-
-              <label className="block md:col-span-2">
-                <span className="mb-1 block text-sm font-medium text-slate-700">進捗率</span>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="5"
-                  name="progress"
-                  value={formData.progress}
-                  onChange={handleInputChange}
-                  className="h-2 w-full cursor-pointer accent-blue-600"
-                />
-                <div className="mt-2 flex items-center justify-between text-sm text-slate-600">
-                  <span>0%</span>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">{formData.progress}%</span>
-                  <span>100%</span>
-                </div>
               </label>
 
               <div className="md:col-span-2 flex justify-end">
@@ -616,6 +625,7 @@ export default function Home() {
                 className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
                 <option value="すべて">すべて</option>
+                <option value="未着手">未着手</option>
                 <option value="進行中">進行中</option>
                 <option value="完了">完了</option>
                 <option value="遅延">遅延</option>
@@ -668,7 +678,13 @@ export default function Home() {
                           }
                         >
                           <td className="whitespace-nowrap px-6 py-4 align-middle">
-                            <div className="font-semibold text-slate-900">{project.projectName}</div>
+                            <Link
+                              href={`/projects/${project.id}`}
+                              onClick={(event) => event.stopPropagation()}
+                              className="font-semibold text-blue-800 underline-offset-4 hover:underline"
+                            >
+                              {project.projectName}
+                            </Link>
                           </td>
                           <td className="whitespace-nowrap px-6 py-4 text-slate-600">{project.siteName}</td>
                           <td className="whitespace-nowrap px-6 py-4 text-slate-600">{project.manager}</td>
@@ -745,7 +761,13 @@ export default function Home() {
                   >
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-base font-bold text-slate-900">{project.projectName}</p>
+                        <Link
+                          href={`/projects/${project.id}`}
+                          onClick={(event) => event.stopPropagation()}
+                          className="block truncate text-base font-bold text-blue-800 underline-offset-4 hover:underline"
+                        >
+                          {project.projectName}
+                        </Link>
                         <p className="mt-1 text-sm text-slate-600">{project.siteName}</p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
@@ -860,20 +882,6 @@ export default function Home() {
               </label>
 
               <label className="block">
-                <span className="mb-1 block text-sm font-medium text-slate-700">ステータス</span>
-                <select
-                  name="status"
-                  value={detailFormData.status}
-                  onChange={handleDetailInputChange}
-                  className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
-                >
-                  <option value="進行中">進行中</option>
-                  <option value="完了">完了</option>
-                  <option value="遅延">遅延</option>
-                </select>
-              </label>
-
-              <label className="block">
                 <span className="mb-1 block text-sm font-medium text-slate-700">開始日</span>
                 <input
                   type="date"
@@ -893,25 +901,6 @@ export default function Home() {
                   onChange={handleDetailInputChange}
                   className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-800 outline-none transition focus:border-blue-500 focus:bg-white"
                 />
-              </label>
-
-              <label className="block md:col-span-2">
-                <span className="mb-1 block text-sm font-medium text-slate-700">進捗率</span>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="5"
-                  name="progress"
-                  value={detailFormData.progress}
-                  onChange={handleDetailInputChange}
-                  className="h-2 w-full cursor-pointer accent-blue-600"
-                />
-                <div className="mt-2 flex items-center justify-between text-sm text-slate-600">
-                  <span>0%</span>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1 font-semibold text-slate-700">{detailFormData.progress}%</span>
-                  <span>100%</span>
-                </div>
               </label>
 
               <div className="md:col-span-2 flex justify-end">
